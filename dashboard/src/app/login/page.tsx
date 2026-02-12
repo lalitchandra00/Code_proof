@@ -45,10 +45,13 @@ export default function LoginPage() {
       console.log("second")
       console.log(response);
 
-      const data = (await response.json()) as LoginResponse;
+      const rawText = await response.text();
+      const data = rawText ? (JSON.parse(rawText) as LoginResponse & { error?: string }) : null;
 
-      if (!response.ok || !data.accessToken) {
-        setError(data.message ?? "Login failed. Please try again.");
+      if (!response.ok || !data?.accessToken) {
+        const message = data?.message ?? data?.error ?? rawText ?? "Login failed. Please try again.";
+        setError(message);
+        console.error("Login failed", { status: response.status, body: rawText });
         return;
       }
 

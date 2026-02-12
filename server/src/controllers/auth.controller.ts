@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import mongoose from "mongoose";
 import { authenticateByClientId } from "../services/auth.service";
 import { logger } from "../utils/logger";
 
@@ -25,9 +26,12 @@ export const loginHandler = async (
   next: NextFunction
 ) => {
   try {
-    const { clientId } = req.body as Record<string, unknown>;
+    if (!req.body || typeof req.body !== "object") {
+      res.status(400).json({ success: false, message: "Request body required" });
+      return;
+    }
 
-    console.log("here")
+    const { clientId } = req.body as Record<string, unknown>;
 
     if (!isUuid(clientId)) {
       res.status(400).json({ success: false, message: "Invalid clientId" });
@@ -35,6 +39,21 @@ export const loginHandler = async (
     }
 
     const jwtSecret = process.env.JWT_SECRET || "";
+    if (!jwtSecret) {
+      logger.error("Login failed: JWT_SECRET missing");
+      res.status(500).json({ success: false, message: "JWT_SECRET is required" });
+      return;
+    }
+
+    if (mongoose.connection.readyState !== 1) {
+      logger.error("Login failed: database not connected", {
+        state: mongoose.connection.readyState,
+      });
+      res
+        .status(503)
+        .json({ success: false, message: "Database not connected" });
+      return;
+    }
     const tokenExpirySeconds = 3600; 
 
     const result = await authenticateByClientId({
@@ -63,7 +82,12 @@ export const loginHandler = async (
       return;
     }
 
-    logger.error("Login failed", { error: String(err) });
-    next(err as Error);
+    logger.error("Login failed", { error: String(err), stack: (err as Error).stack });
+    res.status(500).json({
+      success: false,
+      message: message || "Internal server error",
+      error: message,
+      stack: (err as Error).stack,
+    });
   }
 };
