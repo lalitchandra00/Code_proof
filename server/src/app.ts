@@ -3,6 +3,7 @@ import cors from "cors";
 import { reportRouter } from "./routes/report.routes";
 import { projectRouter } from "./routes/project.routes";
 import { authRouter } from "./routes/auth.routes";
+import { usageRouter } from "./modules/usage/usage.routes";
 import { requestSafety } from "./middlewares/requestSafety";
 import { EnvConfig } from "./config/env";
 import { FeatureFlags } from "./config/featureFlags";
@@ -33,6 +34,7 @@ export const createApp = (params: { env: EnvConfig; featureFlags: FeatureFlags }
   app.use(authRouter);
   app.use(reportRouter({ env, featureFlags }));
   app.use(projectRouter({ jwtSecret: env.jwtSecret }));
+  app.use(usageRouter({ jwtSecret: env.jwtSecret }));
 
   app.use(errorHandler);
 

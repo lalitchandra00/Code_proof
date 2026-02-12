@@ -13,6 +13,7 @@ import { sendReportToServer } from "../utils/apiClient.js";
 import { resolveFeatureFlags, isVerbose } from "../core/featureFlags.js";
 import { getClientId } from "../core/identity.js";
 import { getEnforcementState } from "../core/enforcement.js";
+import { checkUsageOrThrow } from "../core/usageCheck.js";
 import {
     reportFeatureDisabled,
     warnExperimentalOnce,
@@ -64,6 +65,22 @@ export async function runCli({ args = [], cwd }) {
 
     if (!config.scanMode) {
         logError("Config missing scanMode. Expected 'staged' or 'full'.");
+        process.exit(1);
+    }
+
+    const clientId = getClientId();
+    try {
+        const usage = await checkUsageOrThrow({ clientId, config });
+        if (!usage.allowed) {
+            const limit = usage.limit ?? 20;
+            const used = usage.used ?? limit;
+            logError(`Free limit reached (${used}/${limit} runs/month).`);
+            logError("Upgrade to premium to continue.");
+            process.exit(1);
+        }
+    } catch (error) {
+        logError("Usage check failed. Unable to reach CodeProof server.");
+        logError(error?.message || "Usage enforcement failed.");
         process.exit(1);
     }
 

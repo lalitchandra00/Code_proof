@@ -1,17 +1,17 @@
 {
-  "projectId": "854292b0-248d-4a71-a2ba-25c23b652afd",
+  "projectId": "0a12aa60-5dc0-44f2-912c-1b12b0f2e742",
   "projectType": "Node",
-  "scanMode": "full",
+  "scanMode": "staged",
   "enforcement": "disabled",
   "features": {
     "reporting": true,
-    "integration": true,
-    "aiEscalation": true,
+    "integration": false,
+    "aiEscalation": false,
     "secretRemediation": false
   },
   "integration": {
-    "enabled": true,
-    "endpointUrl": "http://localhost:4000/api/reports"
+    "enabled": false,
+    "endpointUrl": ""
   },
   "severityRules": {
     "block": [],

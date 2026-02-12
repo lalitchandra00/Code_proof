@@ -5,12 +5,16 @@ import { logInfo, logSuccess, logWarn } from "../utils/logger.js";
 import { detectProjectType } from "../utils/projectType.js";
 import { installPreCommitHook } from "../hooks/preCommit.js";
 import { showWelcomeScreen } from "../ui/welcomeScreen.js";
+import { displayBanner } from "../ui/banner.js";
 import { getClientId } from "../core/identity.js";
 import { randomUUID } from "crypto";
 
 
 
 export async function runInit({ cwd }) {
+  // Display banner at the start of initialization
+  displayBanner();
+  
   logInfo("Initializing CodeProof...");
 
   getClientId();

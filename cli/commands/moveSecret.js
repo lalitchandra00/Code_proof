@@ -52,7 +52,9 @@ function confirmProceed(message) {
   });
 }
 
-export async function runMoveSecret({ cwd }) {
+export async function runMoveSecret({ args, cwd }) {
+  // Check for --yes flag to skip confirmation (for testing/CI)
+  const autoConfirm = args?.includes("--yes") || args?.includes("-y");
   // Boundary: remediation reads reports only and must not depend on analysis state.
   ensureGitRepo(cwd);
   const gitRoot = getGitRoot(cwd);
@@ -74,27 +76,49 @@ export async function runMoveSecret({ cwd }) {
   }
 
   warnExperimentalOnce("Experimental feature enabled: move-secret.", logWarn);
-  const latestReport = readLatestReport(gitRoot)?.report || null;
-
-  if (!latestReport || !Array.isArray(latestReport.findings)) {
+  
+  // Safety: Read latest report with validation
+  const reportData = readLatestReport(gitRoot);
+  if (!reportData) {
     logWarn("No reports found. Run 'codeproof run' first.");
     process.exit(0);
+  }
+
+  // The reportReader returns { report: parsedJSON, reportPath }
+  // The parsedJSON has structure: { projectId, clientId, project, report: {...}, ...}
+  // So reportData.report.report contains the actual report with findings
+  const fullReport = reportData.report;
+  const latestReport = fullReport.report || {};
+  
+  if (!Array.isArray(latestReport.findings)) {
+    logWarn("Report has no findings array. Invalid report format.");
+    process.exit(1);
   }
 
   const excludes = getDefaultExcludes();
 
   const eligible = latestReport.findings.filter((finding) => {
-    if (finding.ruleId?.startsWith("secret.") !== true) {
+    // Debug logging
+    const isSecret = finding.ruleId?.startsWith("secret.");
+    if (!isSecret) {
+      if (process.env.DEBUG_MOVE_SECRET) logWarn(`Filtered (not secret): ${finding.ruleId}`);
       return false;
     }
-    if (finding.severity !== "block" || finding.confidence !== "high") {
+    
+    // Process findings where severity is "block" OR "high"
+    const isHighRisk = finding.severity === "block" || finding.severity === "high";
+    if (!isHighRisk) {
+      if (process.env.DEBUG_MOVE_SECRET) logWarn(`Filtered (low severity): ${finding.ruleId} severity=${finding.severity}`);
       return false;
     }
+    
     if (!finding.filePath || !finding.lineNumber) {
+      if (process.env.DEBUG_MOVE_SECRET) logWarn(`Filtered (no path/line): ${finding.ruleId}`);
       return false;
     }
 
     if (!finding.codeSnippet) {
+      if (process.env.DEBUG_MOVE_SECRET) logWarn(`Filtered (no snippet): ${finding.filePath}:${finding.lineNumber}`);
       return false;
     }
 
@@ -103,10 +127,12 @@ export async function runMoveSecret({ cwd }) {
       : path.join(gitRoot, finding.filePath);
 
     if (isTestLike(absolutePath)) {
+      if (process.env.DEBUG_MOVE_SECRET) logWarn(`Filtered (test-like): ${absolutePath}`);
       return false;
     }
 
     if (isIgnoredPath(absolutePath, excludes)) {
+      if (process.env.DEBUG_MOVE_SECRET) logWarn(`Filtered (ignored path): ${absolutePath}`);
       return false;
     }
 
@@ -126,7 +152,7 @@ export async function runMoveSecret({ cwd }) {
   }
   logInfo(`Secrets to move: ${eligible.length}`);
 
-  const confirmed = await confirmProceed("Proceed with moving these secrets? (y/N): ");
+  const confirmed = autoConfirm || await confirmProceed("Proceed with moving these secrets? (y/N): ");
   if (!confirmed) {
     logInfo("No changes made.");
     process.exit(0);
@@ -139,6 +165,7 @@ export async function runMoveSecret({ cwd }) {
   let secretIndex = 1;
   let secretsMoved = 0;
   const modifiedFiles = new Set();
+  const errors = [];
 
   for (const finding of eligible) {
     const absolutePath = path.isAbsolute(finding.filePath)
@@ -150,17 +177,18 @@ export async function runMoveSecret({ cwd }) {
       const content = fs.readFileSync(absolutePath, "utf8");
       const lines = content.split(/\r?\n/);
       lineContent = lines[finding.lineNumber - 1] || "";
-    } catch {
-      logWarn(`Skipped ${finding.filePath}:${finding.lineNumber} (unable to read file).`);
+    } catch (err) {
+      errors.push(`${finding.filePath}:${finding.lineNumber} - unable to read file: ${err.message}`);
       continue;
     }
 
     const expectedSecretValue = extractSecretValueFromLine(lineContent);
     if (!expectedSecretValue) {
-      logWarn(`Skipped ${finding.filePath}:${finding.lineNumber} (unable to validate secret value).`);
+      errors.push(`${finding.filePath}:${finding.lineNumber} - unable to extract secret value from line`);
       continue;
     }
 
+    // Avoid key collisions
     while (existingKeys.has(`CODEPROOF_SECRET_${secretIndex}`)) {
       secretIndex += 1;
     }
@@ -168,7 +196,12 @@ export async function runMoveSecret({ cwd }) {
     const envKey = `CODEPROOF_SECRET_${secretIndex}`;
 
     // Safety: keep an original copy before any rewrite.
-    backupFileOnce(gitRoot, absolutePath, backedUp);
+    try {
+      backupFileOnce(gitRoot, absolutePath, backedUp);
+    } catch (err) {
+      errors.push(`${finding.filePath} - backup failed: ${err.message}`);
+      continue;
+    }
 
     const result = replaceSecretInFile({
       filePath: absolutePath,
@@ -179,7 +212,7 @@ export async function runMoveSecret({ cwd }) {
     });
 
     if (!result.updated) {
-      logWarn(`Skipped ${finding.filePath}:${finding.lineNumber} (${result.reason}).`);
+      errors.push(`${finding.filePath}:${finding.lineNumber} - ${result.reason}`);
       continue;
     }
 
@@ -190,13 +223,32 @@ export async function runMoveSecret({ cwd }) {
     modifiedFiles.add(absolutePath);
 
     const relative = path.relative(gitRoot, absolutePath) || absolutePath;
-    logInfo(`Updated ${relative}:${finding.lineNumber} → process.env.${envKey}`);
+    logInfo(`✓ Updated ${relative}:${finding.lineNumber} → process.env.${envKey}`);
   }
 
-  appendEnvEntries(envPath, newEntries);
+  // Append env entries atomically
+  try {
+    appendEnvEntries(envPath, newEntries);
+  } catch (err) {
+    logWarn(`Failed to write .env entries: ${err.message}`);
+    errors.push(`env-write: ${err.message}`);
+  }
 
-  logInfo("Secret move summary:");
+  // Output summary
+  logInfo("");
+  logInfo("═══════════════════════════════════════════");
+  logInfo("Secret Move Summary");
+  logInfo("═══════════════════════════════════════════");
+  logInfo(`Secrets processed: ${eligible.length}`);
   logInfo(`Secrets moved: ${secretsMoved}`);
   logInfo(`Files modified: ${modifiedFiles.size}`);
   logInfo(`Backup location: ${path.join(gitRoot, ".codeproof-backup")}`);
+  
+  if (errors.length > 0) {
+    logInfo("");
+    logWarn(`Errors/Skipped (${errors.length}):`);
+    errors.forEach((err) => logWarn(`  - ${err}`));
+  }
+  
+  logInfo("═══════════════════════════════════════════");
 }

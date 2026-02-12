@@ -98,6 +98,7 @@ export default function LoginPage() {
               placeholder="550e8400-e29b-41d4-a716-446655440000"
               className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
               autoComplete="off"
+              suppressHydrationWarning
             />
           </label>
           {error ? (
@@ -109,6 +110,7 @@ export default function LoginPage() {
             type="submit"
             className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
             disabled={isSubmitting}
+            suppressHydrationWarning
           >
             {isSubmitting ? "Signing in..." : "Sign in"}
           </button>

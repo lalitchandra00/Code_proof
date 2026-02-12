@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import MetricCard from "../../components/MetricCard";
+import MetricsGrid from "../../components/charts/MetricsGrid";
+import ReportsBarChart from "../../components/charts/ReportsBarChart";
+import BlockedPieChart from "../../components/charts/BlockedPieChart";
+import FindingsLineChart from "../../components/charts/FindingsLineChart";
+import UsageGraph from "../../components/UsageGraph";
+import UsageSummaryCard from "../../components/UsageSummaryCard";
 import ProjectsTable from "../../components/ProjectsTable";
 import ReportsTable from "../../components/ReportsTable";
 import { apiFetch } from "../../lib/api";
@@ -39,10 +44,30 @@ type ReportsResponse = {
   success: boolean;
   projectId: string;
   totalReports: number;
+  totalBlocked?: number;
+  totalFindings?: number;
   reports: ReportSummary[];
 };
 
-type ProjectWithCounts = ProjectSummary & { reportCount: number };
+type UsageHistoryEntry = {
+  date: string;
+  count: number;
+};
+
+type UsageResponse = {
+  success: boolean;
+  plan: "free" | "premium";
+  limit: number;
+  used: number;
+  remaining: number;
+  usageHistory: UsageHistoryEntry[];
+};
+
+type ProjectWithCounts = ProjectSummary & {
+  reportCount: number;
+  totalBlocked: number;
+  totalFindings: number;
+};
 
 const PROJECT_LIMIT = 6;
 const REPORTS_PER_PROJECT = 10;
@@ -51,10 +76,18 @@ const RECENT_REPORTS_LIMIT = 6;
 export default function DashboardPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectWithCounts[]>([]);
+  const [allReports, setAllReports] = useState<ReportSummary[]>([]);
   const [reports, setReports] = useState<ReportSummary[]>([]);
   const [totalReports, setTotalReports] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [usageData, setUsageData] = useState<UsageResponse | null>(null);
+  const [usageError, setUsageError] = useState<string | null>(null);
+
+  const recentProjects = useMemo(
+    () => projects.slice(0, PROJECT_LIMIT),
+    [projects],
+  );
 
   useEffect(() => {
     let isActive = true;
@@ -68,10 +101,8 @@ export default function DashboardPage() {
           "/api/projects",
         );
         const projectList = projectsResponse.projects ?? [];
-        const limitedProjects = projectList.slice(0, PROJECT_LIMIT);
-
         const reportPages = await Promise.all(
-          limitedProjects.map(async (project) => {
+          projectList.map(async (project) => {
             try {
               return await apiFetch<ReportsResponse>(
                 `/api/projects/${project.projectId}/reports?limit=${REPORTS_PER_PROJECT}&offset=0`,
@@ -86,10 +117,27 @@ export default function DashboardPage() {
           return;
         }
 
-        const projectsWithCounts = limitedProjects.map((project, index) => ({
-          ...project,
-          reportCount: reportPages[index]?.totalReports ?? 0,
-        }));
+        const projectsWithCounts = projectList.map((project, index) => {
+          const page = reportPages[index];
+          const reportItems = page?.reports ?? [];
+          const reportCount = page?.totalReports ?? reportItems.length;
+          const totalBlocked =
+            page?.totalBlocked ??
+            reportItems.reduce((sum, report) => sum + report.summary.blocks, 0);
+          const totalFindings =
+            page?.totalFindings ??
+            reportItems.reduce(
+              (sum, report) => sum + report.summary.findings,
+              0,
+            );
+
+          return {
+            ...project,
+            reportCount,
+            totalBlocked,
+            totalFindings,
+          };
+        });
 
         const reportItems = reportPages.flatMap(
           (page) => page?.reports ?? [],
@@ -101,14 +149,28 @@ export default function DashboardPage() {
         );
 
         const recentReports = reportItems.slice(0, RECENT_REPORTS_LIMIT);
-        const totalReportsCount = reportPages.reduce(
-          (sum, page) => sum + (page?.totalReports ?? 0),
+        const totalReportsCount = projectsWithCounts.reduce(
+          (sum, project) => sum + project.reportCount,
           0,
         );
 
+        let usageSnapshot: UsageResponse | null = null;
+        let usageMessage: string | null = null;
+        try {
+          usageSnapshot = await apiFetch<UsageResponse>("/api/usage");
+        } catch (usageErr) {
+          usageMessage =
+            usageErr instanceof Error
+              ? usageErr.message
+              : "Unable to load usage metrics.";
+        }
+
         setProjects(projectsWithCounts);
+        setAllReports(reportItems);
         setReports(recentReports);
         setTotalReports(totalReportsCount);
+        setUsageData(usageSnapshot);
+        setUsageError(usageMessage);
       } catch (err) {
         if (!isActive) {
           return;
@@ -134,12 +196,12 @@ export default function DashboardPage() {
   }, []);
 
   const metrics = useMemo(() => {
-    const blockedCommits = reports.filter((report) =>
-      report.summary.finalVerdict.toLowerCase().includes("block"),
-    ).length;
-
-    const highRiskFindings = reports.reduce(
-      (sum, report) => sum + report.summary.blocks,
+    const blockedCommits = projects.reduce(
+      (sum, project) => sum + project.totalBlocked,
+      0,
+    );
+    const totalFindingsCount = projects.reduce(
+      (sum, project) => sum + project.totalFindings,
       0,
     );
 
@@ -147,9 +209,69 @@ export default function DashboardPage() {
       totalProjects: projects.length,
       totalReports,
       blockedCommits,
-      highRiskFindings,
+      totalFindings: totalFindingsCount,
     };
-  }, [projects.length, reports, totalReports]);
+  }, [projects, totalReports]);
+
+  const metricsItems = useMemo(
+    () => [
+      {
+        label: "Total Projects",
+        value: metrics.totalProjects.toString(),
+        helper: "Active project scopes",
+      },
+      {
+        label: "Total Reports",
+        value: metrics.totalReports.toString(),
+        helper: "Reports visible to this account",
+      },
+      {
+        label: "Blocked Commits",
+        value: metrics.blockedCommits.toString(),
+        helper: `Based on ${metrics.totalReports} total reports`,
+        tone: "danger" as const,
+      },
+      {
+        label: "Total Findings",
+        value: metrics.totalFindings.toString(),
+        helper: `Based on ${metrics.totalReports} total reports`,
+        tone: "warning" as const,
+      },
+    ],
+    [metrics],
+  );
+
+  const reportsPerProject = useMemo(
+    () =>
+      projects.map((project) => ({
+        name: project.name || project.repoIdentifier || project.projectId,
+        reports: project.reportCount,
+      })),
+    [projects],
+  );
+
+  const blockedDistribution = useMemo(() => {
+    const allowed = Math.max(metrics.totalReports - metrics.blockedCommits, 0);
+    return { blocked: metrics.blockedCommits, allowed };
+  }, [metrics]);
+
+  const findingsTrend = useMemo(() => {
+    const sorted = [...allReports].sort(
+      (a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+    );
+    const byDate = new Map<string, number>();
+
+    sorted.forEach((report) => {
+      const key = new Date(report.timestamp).toISOString().slice(0, 10);
+      byDate.set(key, (byDate.get(key) ?? 0) + report.summary.findings);
+    });
+
+    return Array.from(byDate.entries()).map(([date, findings]) => ({
+      dateLabel: formatDateLabel(date),
+      findings,
+    }));
+  }, [allReports]);
 
   const handleLogout = () => {
     clearToken();
@@ -198,29 +320,87 @@ export default function DashboardPage() {
             </div>
           ) : null}
 
-          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <MetricCard
-              label="Total Projects"
-              value={metrics.totalProjects.toString()}
-              helper="Active project scopes"
-            />
-            <MetricCard
-              label="Total Reports"
-              value={metrics.totalReports.toString()}
-              helper="Reports visible to this account"
-            />
-            <MetricCard
-              label="Blocked Commits"
-              value={metrics.blockedCommits.toString()}
-              helper={`Based on last ${reports.length} reports`}
-              tone="danger"
-            />
-            <MetricCard
-              label="High-Risk Findings"
-              value={metrics.highRiskFindings.toString()}
-              helper={`Based on last ${reports.length} reports`}
-              tone="warning"
-            />
+          <section className="space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">
+                Security analytics
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Visual summary of your project activity and risk signals.
+              </p>
+            </div>
+            {isLoading ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-sm text-slate-500">
+                Loading analytics...
+              </div>
+            ) : (
+              <MetricsGrid items={metricsItems} />
+            )}
+            <div className="grid gap-6 lg:grid-cols-2">
+              {isLoading ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-sm text-slate-500">
+                  Loading charts...
+                </div>
+              ) : (
+                <ReportsBarChart data={reportsPerProject} />
+              )}
+              {isLoading ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-sm text-slate-500">
+                  Loading charts...
+                </div>
+              ) : (
+                <BlockedPieChart
+                  blocked={blockedDistribution.blocked}
+                  allowed={blockedDistribution.allowed}
+                />
+              )}
+            </div>
+            {isLoading ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-sm text-slate-500">
+                Loading trends...
+              </div>
+            ) : (
+              <FindingsLineChart data={findingsTrend} />
+            )}
+          </section>
+
+          <div className="border-t border-slate-200" />
+
+          <section className="space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">
+                Usage tracking
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Monthly run limits and daily usage volume.
+              </p>
+            </div>
+            {isLoading ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-sm text-slate-500">
+                Loading usage metrics...
+              </div>
+            ) : usageError ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                {usageError}
+              </div>
+            ) : usageData ? (
+              <div className="grid gap-6 lg:grid-cols-2">
+                <UsageSummaryCard
+                  plan={usageData.plan}
+                  used={usageData.used}
+                  limit={usageData.limit}
+                  remaining={usageData.remaining}
+                />
+                <UsageGraph
+                  usageHistory={usageData.usageHistory}
+                  limit={usageData.limit}
+                />
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-sm text-slate-500">
+                Usage data not available yet.
+              </div>
+            )}
           </section>
 
           <div className="border-t border-slate-200" />
@@ -239,7 +419,7 @@ export default function DashboardPage() {
                 Loading projects...
               </div>
             ) : (
-              <ProjectsTable projects={projects} />
+              <ProjectsTable projects={recentProjects} />
             )}
           </section>
 
@@ -266,4 +446,16 @@ export default function DashboardPage() {
       </div>
     </main>
   );
+}
+
+function formatDateLabel(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
 }

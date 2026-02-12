@@ -13,7 +13,7 @@ export async function runWhoAmI() {
   logInfo(clientId);
   logInfo("");
   logInfo("Use this ID to log in at:");
-  logInfo("https://your-dashboard-url.com/login");
+  logInfo("http://localhost:3000/login");
   logInfo("");
   logInfo(`Config: ${getGlobalConfigPath()}`);
 }

@@ -55,8 +55,8 @@ function formatDate(value: string) {
   });
 }
 
-export default async function ReportPage(props: ReportPageProps) {
-  const { reportId } = await props.params;
+export default async function ReportPage({ params }: ReportPageProps) {
+  const { reportId } = await params;
   let data: ReportResponse | null = null;
   let notFound = false;
   let error: string | null = null;
