@@ -52,7 +52,7 @@ export default function UsageGraph({ usageHistory, limit }: UsageGraphProps) {
           Daily run usage
         </h3>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          Track daily CodeProof run executions for the current month.
+          Track daily CodeProof run executions for the current month (limit {limit}).
         </p>
       </div>
       <div className="mt-6 h-64">
@@ -68,7 +68,7 @@ export default function UsageGraph({ usageHistory, limit }: UsageGraphProps) {
                 fontSize: "12px",
               }}
             />
-            <ReferenceLine y={limit} stroke="#fb7185" strokeDasharray="4 4" />
+            <ReferenceLine y={20} stroke="#ef4444" />
             <Line
               type="monotone"
               dataKey="runs"

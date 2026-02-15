@@ -14,6 +14,7 @@ export async function runWhoAmI() {
   logInfo("");
   logInfo("Use this ID to log in at:");
   logInfo("http://localhost:3000/login");
+  logInfo("http://localhost:3000/login");
   logInfo("");
   logInfo(`Config: ${getGlobalConfigPath()}`);
 }

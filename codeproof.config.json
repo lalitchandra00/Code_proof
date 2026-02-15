@@ -1,12 +1,12 @@
 {
-  "projectId": "0a12aa60-5dc0-44f2-912c-1b12b0f2e742",
+  "projectId": "4d114809-8f1c-49c0-b184-405c897b1bb8",
   "projectType": "Node",
-  "scanMode": "staged",
+  "scanMode": "full",
   "enforcement": "disabled",
   "features": {
     "reporting": true,
-    "integration": false,
-    "aiEscalation": false,
+    "integration": true,
+    "aiEscalation": true,
     "secretRemediation": false
   },
   "integration": {
