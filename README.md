@@ -1,128 +1,229 @@
 # CodeProof
 
-CodeProof is a security-focused developer toolchain that scans code for risky usage, prevents unsafe commits, and publishes findings to a server-backed dashboard. It ships as a CLI, a backend API, a Next.js dashboard, and an optional ML-powered risk classifier.
+Security-first code scanning with actionable AI-assisted analysis, local CLI enforcement, and a live dashboard.
 
-Deployed dashboard: https://code-proof.vercel.app/
+---
 
-## Highlights
-- CLI-driven scanning for secrets, insecure configs, and dangerous usage patterns.
-- Commit enforcement hooks to block risky changes.
-- Centralized reporting with usage limits and analytics.
-- Optional ML risk classifier service (FastAPI).
+## ✨ What is CodeProof?
 
-## Repository layout
-- AI/ — FastAPI service for ML risk classification.
-- cli/ — CodeProof CLI (init, scan, report, enforcement controls).
-- server/ — Express + TypeScript API, usage enforcement, report ingestion.
-- dashboard/ — Next.js dashboard UI.
-- codeproof-reports/ — Local JSON reports.
-- codeproof.config.json — Example configuration.
+CodeProof is a multi-part platform that helps teams catch risky patterns before code lands in production.
 
-## Architecture overview
-1. The CLI scans files (staged or full repo) based on `codeproof.config.json` rules.
-2. Reports are written locally and optionally sent to the server.
-3. The server enforces usage limits, stores reports, and serves data to the dashboard.
-4. The dashboard visualizes usage and report insights.
-5. The AI service (optional) can classify risk levels for text inputs.
+It combines:
+- **CLI scanning** for staged or full-repo checks
+- **Pre-commit enforcement** for policy guardrails
+- **Server-side report ingestion** with project/report APIs
+- **Dashboard UI** for visibility and trends
+- **AI risk API** for contextual risk escalation
 
-## Prerequisites
-- Node.js 18+
-- npm
-- MongoDB (for the backend)
-- Python 3.10+ (only for the AI service)
+---
 
-## Quick start (local development)
+## 🧱 Monorepo Structure
 
-### 1) Backend server
-From server/:
-1. Install dependencies:
-	- npm install
-2. Create .env with required variables:
-	- MONGO_URI=<your-mongodb-connection-string>
-	- JWT_SECRET=<your-secret>
-	- PORT=4000 (optional, default 4000)
-3. Start dev server:
-	- npm run dev
+```text
+Code_proof/
+├─ cli/         # Node.js CLI (scan, report, enforcement controls)
+├─ server/      # Express + TypeScript backend (reports/projects/auth)
+├─ dashboard/   # Next.js dashboard frontend
+├─ AI/          # FastAPI risk classification microservice
+└─ codeproof.config.json
+```
 
-### 2) Dashboard
-From dashboard/:
-1. Install dependencies:
-	- npm install
-2. Create .env.local:
-	- NEXT_PUBLIC_API_URL=http://localhost:4000
-3. Start dev server:
-	- npm run dev
+---
 
-### 3) CLI
-From cli/:
-1. Install dependencies:
-	- npm install
-2. Link locally (optional):
-	- npm link
-3. Initialize and scan a repo:
-	- codeproof init
-	- codeproof run
-	- codeproof report@dashboard
+## 🚀 Quick Start (Local Dev)
 
-If you prefer npx (published package):
-- npx codeproof init
+### 1) Prerequisites
 
-## CLI commands
-- init: Initialize CodeProof in the current Git repo.
-- run: Run a security scan based on config.
-- report@dashboard: Send the latest report to the server and show dashboard link.
-- move-secret: Move high-risk secrets to .env safely.
-- ignore: Temporarily disable commit enforcement.
-- apply: Re-enable commit enforcement.
-- whoami: Show the local clientId.
-- help: Show CLI help.
+- **Node.js 18+**
+- **npm**
+- **Python 3.10+** (for `AI/`)
+- **MongoDB** running locally or remotely
 
-## Configuration
-CodeProof reads codeproof.config.json from the repository root.
+### 2) Install dependencies
 
-Example:
-{
-  "projectId": "<uuid>",
-  "projectType": "Node",
-  "scanMode": "staged",
-  "enforcement": "enabled",
-  "features": {
-	 "reporting": true,
-	 "integration": true,
-	 "aiEscalation": false,
-	 "secretRemediation": false
-  },
-  "integration": {
-	 "enabled": true,
-	 "endpointUrl": "http://127.0.0.1:4000/api/reports"
-  }
-}
+```bash
+# CLI
+cd cli
+npm install
 
-### API base override
-The CLI defaults to http://127.0.0.1:4000/api for usage checks. Override with:
-- CODEPROOF_API_BASE=http://your-server:4000/api
+# Server
+cd ../server
+npm install
 
-## AI risk classifier (optional)
-The AI service exposes a FastAPI endpoint for text-based risk classification.
+# Dashboard
+cd ../dashboard
+npm install
 
-From AI/:
-1. Create and activate a virtual environment.
-2. Install dependencies:
-	- pip install -r requirements.txt
-3. Start the API:
-	- uvicorn main:app --host 127.0.0.1 --port 8000
+# AI service (Python)
+cd ../AI
+pip install -r requirements.txt
+```
 
-Endpoint:
-- POST /predict (text/plain body)
+### 3) Configure environment
 
-## Reports
-Local scan outputs are stored in codeproof-reports/ as JSON. When integration is enabled, the latest report is also sent to the server and visualized in the dashboard.
+#### `server/.env`
 
-## Tech stack
-- CLI: Node.js (ESM)
-- Backend: Express + TypeScript + MongoDB
-- Dashboard: Next.js (App Router) + React + Tailwind
-- AI: FastAPI + scikit-learn
+```env
+PORT=4000
+MONGO_URI=mongodb://127.0.0.1:27017/codeproof
+JWT_SECRET=replace-with-strong-secret
 
-## License
-See individual package.json files for license details.
+# Optional
+REQUEST_BODY_LIMIT=2mb
+REQUEST_TIMEOUT_MS=15000
+RATE_LIMIT_WINDOW_MS=60000
+RATE_LIMIT_MAX=60
+ENABLE_AUTH=true
+ENABLE_RATE_LIMITING=true
+ENABLE_PUBLIC_REPORTS=true
+```
+
+#### `dashboard/.env.local`
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:4000
+```
+
+### 4) Run services
+
+```bash
+# Terminal 1 - Backend API
+cd server
+npm run dev
+
+# Terminal 2 - Dashboard
+cd dashboard
+npm run dev
+
+# Terminal 3 - AI Risk API
+cd AI
+python main.py
+```
+
+Dashboard default URL: `http://localhost:3000`
+
+---
+
+## 🛠 CLI Usage
+
+From `cli/`, expose the CLI locally:
+
+```bash
+cd cli
+npm link
+```
+
+Now use it in any Git repo:
+
+```bash
+codeproof init
+codeproof run
+codeproof report@dashboard
+codeproof move-secret
+codeproof ignore
+codeproof apply
+codeproof whoami
+```
+
+### Command Summary
+
+- `init` – initialize CodeProof config + install pre-commit hook
+- `run` – execute scanner and generate report
+- `report@dashboard` – sync latest report + show dashboard project link
+- `move-secret` – move high-confidence secrets to `.env`
+- `ignore` / `apply` – disable or re-enable commit enforcement
+- `whoami` – show local CodeProof client identity
+
+---
+
+## ⚙️ Configuration (`codeproof.config.json`)
+
+Core options:
+- `scanMode`: `staged` or `full`
+- `enforcement`: `enabled` or `disabled`
+- `features.reporting`: local/server report pipeline
+- `features.integration`: report sync to backend endpoint
+- `features.aiEscalation`: send ambiguous findings for AI analysis
+- `integration.endpointUrl`: report ingestion endpoint (example: `http://localhost:4000/api/reports`)
+
+---
+
+## 🔍 How Scanning Works
+
+1. File targets are selected (`staged` or `full` mode)
+2. Rules engine runs deterministic checks (secrets, risky usage, insecure config, etc.)
+3. Optional AI escalation reviews ambiguous findings
+4. Decisions are merged into **block** and **warn** outcomes
+5. Reports are written locally and optionally synced to server
+6. Exit code controls commit blocking in pre-commit flow
+
+---
+
+## 🌐 APIs (Server)
+
+- `POST /api/reports` – ingest report
+- `GET /api/reports/:reportId` – fetch a report
+- `POST /api/auth/login` – auth endpoint
+- `GET /api/projects*` – project dashboard APIs (auth-protected)
+
+---
+
+## 🤖 AI Risk Service
+
+The `AI/` microservice exposes:
+- `POST /predict` – plain text body, returns risk verdict (`Critical`, `High Risk`, `No Risk`)
+
+Run with:
+
+```bash
+cd AI
+python main.py
+```
+
+Default bind: `127.0.0.1:8000`
+
+---
+
+## 📦 Build Scripts
+
+### `server/`
+
+```bash
+npm run dev
+npm run build
+npm run start
+```
+
+### `dashboard/`
+
+```bash
+npm run dev
+npm run build
+npm run start
+npm run lint
+```
+
+---
+
+## 📌 Roadmap Ideas
+
+- GitHub App / CI integrations
+- Multi-repo organization analytics
+- Richer secret remediation workflows
+- Policy packs for compliance standards
+
+---
+
+## 🤝 Contributing
+
+1. Fork and clone
+2. Create a feature branch
+3. Make focused changes
+4. Run local checks
+5. Open a PR with clear context
+
+---
+
+## 📄 License
+
+MIT (see package-level declarations)
